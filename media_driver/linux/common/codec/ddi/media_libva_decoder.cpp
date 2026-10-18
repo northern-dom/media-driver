@@ -374,15 +374,22 @@ VAStatus DdiDecode_StatusReport(PDDI_MEDIA_CONTEXT mediaCtx, CodechalDecode *dec
             DDI_CHK_CONDITION((uNumAvailableReport == 0),
                 "No report available at all", VA_STATUS_ERROR_OPERATION_FAILED);
 
-            for (i = 0; i < uNumAvailableReport; i++)
+            // Surfaces are recycled, so older entries for the same bo can belong to earlier frames
+            // that were never synced (e.g. dropped by a frame-rate filter). Match the newest entry:
+            // stopping at an older one leaves this frame's report queued, and the backlog then grows
+            // until m_currIndex laps m_firstIndex and the status ring is corrupted.
+            uint32_t newestMatch = uNumAvailableReport;
+            for (i = uNumAvailableReport; i > 0; i--)
             {
-                int32_t index = (decodeStatusBuf->m_firstIndex + i) & (CODECHAL_DECODE_STATUS_NUM - 1);
+                int32_t index = (decodeStatusBuf->m_firstIndex + i - 1) & (CODECHAL_DECODE_STATUS_NUM - 1);
                 if ((decodeStatusBuf->m_decodeStatus[index].m_decodeStatusReport.m_currDecodedPicRes.bo == surface->bo) ||
                     (decoder->GetStandard() == CODECHAL_VC1 && decodeStatusBuf->m_decodeStatus[index].m_decodeStatusReport.m_deblockedPicResOlp.bo == surface->bo))
                 {
+                    newestMatch = i - 1;
                     break;
                 }
             }
+            i = newestMatch;
 
             DDI_CHK_CONDITION((i == uNumAvailableReport),
                 "No report available for this surface", VA_STATUS_ERROR_OPERATION_FAILED);
